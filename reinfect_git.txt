@@ -1,14 +1,15 @@
 /*This code is provided for the study "Outcomes of SARS-CoV-2 Reinfection"
 This code is part of an ongoing project and should be considering a work in progress
 
+This code was last revised 08/03/2022
+
 The analyses conducted here provide a comparison of those with a reinfection to the non-reinfected.
 
-For the macro trial_by_month the input and relevant parameters are:
+For the macro reinfection the input and relevant parameters are:
 id: id variable for the participant
-outcome: the name of the outcome stored as a date
+outcome: the name of the outcome stored as a date. If the participant has no outcome, this should be missing
 history: the name of the history variable that stores prior history of the outcome
-	in question. A 1 or date may be used to indicate a prior history, while a 0 or missing
-	will indicate no history.
+	in question. A 1 or date may be used to indicate a prior history, while a 0 or missing will indicate no history.
 hr: stores hazard ratio estimates
 sur: stores survival estimates
 
@@ -16,19 +17,16 @@ hdcov: high dimensional covariates
 class: categorical prespecified, non-high dimensional covariates
 continuous: continuous prespecified, non-high dimensional covariates
 
-cohort: contains the cohort information, covariates (both prespecified and high dimensional), history, and outcome variables.
-	The cohort should contain for all participants an observation per period of follow-up when relevant
-period: Variable in the cohort data that contains the relevant time period for that observation
-period_con: Specifies conditional period for survival probability estimation
-t1: Start of follow-up for the relevant period
-endoffollow: end of follow-up for the relevant period
+cohort: dataset containing the cohort information, covariates (both prespecified and high dimensional), history, and outcome variables.
+t1: Start of follow-up for the participant
+endoffollow: end of follow-up for the participant
 group: Indicator of group membership. Values are "REIN" for the reinfection and "NONI" for the non-reinfected
 
-Target: This contains the target population for weighting
+target: dataset containing the target population for weighting and their relevant covariate information and history
 
 */
 
-%macro trial_by_month (id, outcome, history, hr, sur, hdcov, class, cont, cohort, period, period_con, target);
+%macro reinfection (id, outcome, history, hr, sur, hdcov, class, cont, cohort, target);
 
 data &hr;
 set _NULL_;
@@ -48,18 +46,14 @@ if &history<=0;
 group="TARG";
 run;
 
-/*This loops through the different time periods*/
-%do i=1 %to 6 %by 1;
-data covid_period;
+data covid;
 set &cohort;
 if &history<=0;
-if &period=&i;
 run;
 
 /*Develop the propensity scores*/
 data combine;
-set covid_period
-target;
+set covid target;
 run;
 
 data model;
@@ -88,16 +82,17 @@ model classbreak(event="1")=
 output out=ps_NO (keep=&id ps_NO group) pred=ps_NO ;
 run;
 
-proc sort data=covid_period; by &id; run;
+proc sort data=covid; by &id; run;
 proc sort data=ps_RE; by &id; run;
 proc sort data=ps_NO; by &id; run;
 
 /*Weights groups to the target population*/
 data ps ;
-merge covid_period (keep=&id &outcome t1 endoffollow &period )
+merge covid (in=a keep=&id &outcome t1 endoffollow)
 ps_RE (where=(group="REIN")) 
 ps_NO (where=(group="NONI"));
 by &id;
+if a;
 if group="REIN" then wt=(1-ps_RE)/ps_RE;
 if group="NONI" then wt=(1-ps_NO)/ps_NO;
 run;
@@ -114,24 +109,18 @@ time=endoffollow - t1;
 end;
 run;
 
-data store;
-set store outcome;
-run;
-%end;
-
-/* for survival estimation for both groups at 180 days from t1 conditional on the &period_co */
+/* for survival estimation for both groups at 180 days from t1*/
 data baseline;
 length group $16.;
 event=0; time=180;
-&period=&period_con;
 group="REIN";output;
 group="NONI"; output;
 run;
 
 ods output hazardratios=hr;
 proc phreg data=store covs (aggregate) ;
-class group (ref="NONI") &period;
-model time*event(0)=group &period;
+class group (ref="NONI");
+model time*event(0)=group;
 hazardratio group/diff=pairwise;
 weight wt;
 id &id;
