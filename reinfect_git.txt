@@ -118,7 +118,7 @@ group="NONI"; output;
 run;
 
 ods output hazardratios=hr;
-proc phreg data=store covs (aggregate) ;
+proc phreg data=outcome covs (aggregate) ;
 class group (ref="NONI");
 model time*event(0)=group;
 hazardratio group/diff=pairwise;
